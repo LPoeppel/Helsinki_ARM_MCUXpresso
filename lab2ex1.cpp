@@ -64,14 +64,11 @@ static void vUARTTask1(void *pvParameters) {
 		while (1) {
 			if(SW1.read()){
 				if(mutex != NULL){
-					if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-					{
-						while(SW1.read()){
-							Board_UARTPutSTR("SW1 is pressed.\n\n");
-							vTaskDelay(configTICK_RATE_HZ);
-						}
+					if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE){
+						Board_UARTPutSTR("SW1 is pressed.\n\n");
 						xSemaphoreGive(mutex);
 					}
+					vTaskDelay(configTICK_RATE_HZ);
 				}
 			}
 		}
