@@ -48,7 +48,7 @@ static void prvSetupHardware(void)
 
 	/* Initial LED0 state is off */
 	Board_LED_Set(0, false);
-	//Board_LED_Set(1, false);
+	Board_LED_Set(1, false);
 }
 //Lab2 Ex2
 SemaphoreHandle_t binary = NULL;
@@ -56,10 +56,9 @@ static void vReadTask(void *pvParameters) {
 	while (1) {
 		while(Board_UARTGetChar() != EOF){
 			xSemaphoreGive(binary);
-			char *c_ptr = NULL;
-			*c_ptr = (char) Board_UARTGetChar();
-			Board_UARTPutChar(*c_ptr);
-			vTaskDelay(2000);
+			char c = Board_UARTGetChar();
+			Board_UARTPutChar(c);
+			vTaskDelay(200);
 		}
 	}
 }
@@ -67,21 +66,12 @@ static void vIndicateTask(void *pvParameters) {
 	while (1) {
 		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
 			Board_LED_Toggle(1);
-			vTaskDelay(configTICK_RATE_HZ / 0.2);
+
 		}
 	}
 }
 
-static void vUARTTask(void *pvParameters) {
-	DigitalIoPin SW1(0, 17, DigitalIoPin::pullup, true);
-	while (1) {
-		if(SW1.read()){
-			vTaskDelay(configTICK_RATE_HZ);
-			Board_UARTPutSTR("Test");
-			vTaskDelay(configTICK_RATE_HZ);
-		}
-	}
-}
+
 /*****************************************************************************
  * Public functions
  ****************************************************************************/
@@ -113,9 +103,7 @@ int main(void)
 	xTaskCreate(vIndicateTask, "vTaskIndicate",
 				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
-	xTaskCreate(vUARTTask, "vTaskUART",
-					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-					(TaskHandle_t *) NULL);
+
 	/* Start the scheduler */
 	vTaskStartScheduler();
 	/* Should never arrive here */
