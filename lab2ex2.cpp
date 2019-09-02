@@ -54,19 +54,20 @@ static void prvSetupHardware(void)
 SemaphoreHandle_t binary = NULL;
 static void vReadTask(void *pvParameters) {
 	while (1) {
-		while(Board_UARTGetChar() != EOF){
+		int i = Board_UARTGetChar();
+		if(i != EOF){
 			xSemaphoreGive(binary);
-			char c = Board_UARTGetChar();
-			Board_UARTPutChar(c);
-			vTaskDelay(200);
+			Board_UARTPutChar(i);
 		}
+		else{ vTaskDelay(1); }
 	}
 }
 static void vIndicateTask(void *pvParameters) {
 	while (1) {
 		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
 			Board_LED_Toggle(1);
-
+			vTaskDelay(configTICK_RATE_HZ * 0.1);
+			Board_LED_Toggle(1);
 		}
 	}
 }
