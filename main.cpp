@@ -48,110 +48,30 @@ static void prvSetupHardware(void)
 
 	/* Initial LED0 state is off */
 	Board_LED_Set(0, false);
-}
-//Lab2 Ex1
-SemaphoreHandle_t mutex = NULL;
-static void vMutexTask(void *pvParameters) {
-			mutex = xSemaphoreCreateMutex();
-			xSemaphoreGive(mutex);
-			while(1){
-				;
-			}
-}
-/* UART (or output) thread */
-static void vUARTTask1(void *pvParameters) {
-		DigitalIoPin SW1(0, 17, DigitalIoPin::pullup, true);
-		while (1) {
-			if(SW1.read()){
-				if(mutex != NULL){
-					if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-					{
-						while(SW1.read()){
-							Board_UARTPutSTR("SW1 is pressed.\n\n");
-							vTaskDelay(configTICK_RATE_HZ);
-						}
-						xSemaphoreGive(mutex);
-					}
-				}
-			}
-		}
-}
-
-static void vUARTTask2(void *pvParameters) {
-	DigitalIoPin SW2(1, 11, DigitalIoPin::pullup, true);
-	while (1) {
-		if(SW2.read()){
-			if(mutex != NULL){
-				if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-				{
-					while(SW2.read()){
-						Board_UARTPutSTR("SW2 is pressed.\n\n");
-						vTaskDelay(configTICK_RATE_HZ);
-					}
-					xSemaphoreGive(mutex);
-				}
-			}
-		}
-	}
-}
-static void vUARTTask3(void *pvParameters) {
-	DigitalIoPin SW3(1, 9, DigitalIoPin::pullup, true);
-	while (1) {
-		if(SW3.read()){
-			if(mutex != NULL){
-				/* See if we can obtain the semaphore.  If the semaphore is not
-				available wait 10 ticks to see if it becomes free. */
-				if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-				{
-					while(SW3.read()){
-						Board_UARTPutSTR("SW3 is pressed.\n\n");
-						vTaskDelay(configTICK_RATE_HZ);
-					}
-					xSemaphoreGive(mutex);
-				}
-			}
-		}
-	}
+	Board_LED_Set(1, false);
 }
 //Lab2 Ex2
-static void vReadUARTTask(void *pvParameters) {
-	DigitalIoPin SW3(1, 9, DigitalIoPin::pullup, true);
+SemaphoreHandle_t binary = NULL;
+static void vReadTask(void *pvParameters) {
 	while (1) {
-		if(SW3.read()){
-			if(mutex != NULL){
-				/* See if we can obtain the semaphore.  If the semaphore is not
-				available wait 10 ticks to see if it becomes free. */
-				if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-				{
-					while(SW3.read()){
-						Board_UARTPutSTR("SW3 is pressed.\n\n");
-						vTaskDelay(configTICK_RATE_HZ);
-					}
-					xSemaphoreGive(mutex);
-				}
-			}
+		while(Board_UARTGetChar() != EOF){
+			xSemaphoreGive(binary);
+			char c = (char) Board_UARTGetChar();
+			Board_UARTPutChar(c);
+			vTaskDelay(200);
 		}
 	}
 }
-static void vIndicateReadTask(void *pvParameters) {
-	DigitalIoPin SW3(1, 9, DigitalIoPin::pullup, true);
+static void vIndicateTask(void *pvParameters) {
 	while (1) {
-		if(SW3.read()){
-			if(mutex != NULL){
-				/* See if we can obtain the semaphore.  If the semaphore is not
-				available wait 10 ticks to see if it becomes free. */
-				if(xSemaphoreTake(mutex, ( TickType_t ) 10) == pdTRUE)
-				{
-					while(SW3.read()){
-						Board_UARTPutSTR("SW3 is pressed.\n\n");
-						vTaskDelay(configTICK_RATE_HZ);
-					}
-					xSemaphoreGive(mutex);
-				}
-			}
+		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
+			Board_LED_Toggle(1);
+			vTaskDelay(configTICK_RATE_HZ * 0.1);
+			Board_LED_Toggle(1);
 		}
 	}
 }
+
 
 /*****************************************************************************
  * Public functions
@@ -176,32 +96,17 @@ void vConfigureTimerForRunTimeStats( void ) {
 int main(void)
 {
 	prvSetupHardware();
-
-	//Lab2 Ex1
-	/*
-	xTaskCreate(vMutexTask, "vTaskMutex",
-				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	xTaskCreate(vUARTTask1, "vTaskUart1",
-				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	xTaskCreate(vUARTTask2, "vTaskUart2",
-				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	xTaskCreate(vUARTTask3, "vTaskUart3",
-				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-	*/
+	binary = xSemaphoreCreateBinary();
 	//Lab2 Ex2
-
-
+	xTaskCreate(vReadTask, "vTaskRead",
+				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+	xTaskCreate(vIndicateTask, "vTaskIndicate",
+				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
 
 	/* Start the scheduler */
 	vTaskStartScheduler();
 	/* Should never arrive here */
 	return 1;
 }
-
