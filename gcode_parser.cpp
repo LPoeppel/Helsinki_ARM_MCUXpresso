@@ -1,6 +1,9 @@
 /*
-
-*/
+ * GParser.cpp
+ *
+ *  Created on: Sep 5, 2019
+ *      Author: embedded
+ */
 
 #include <stdio.h>
 #include <iostream>
@@ -8,9 +11,9 @@
 #include <fstream>
 #include <string>
 #include <sstream>
-#include <map>
+#include <vector>
 
-enum Command{ 
+enum Command{
     M1, //0,
     M2, //1,
     M4, //2,
@@ -18,10 +21,10 @@ enum Command{
     M10, // = 4,
     M11, // = 5,
     G1, // = 6,
-    G28 // = 7  
+    G28 // = 7
  };
 
-Command selectCommandParameter(const std::string gcode_input_line){
+void selectCommandParameter(const std::string gcode_input_line){
     /*extract Command from line and turn it into int value, then read the line and fill a std::map with numeric-parameter value
         //
         //gcode_input_line is the original input
@@ -30,8 +33,8 @@ Command selectCommandParameter(const std::string gcode_input_line){
         //comand_int see enum Command
         //
    */
-   std::string command_string;
-   std::stringstream input_sstream(gcode_input_line), parameter;
+   std::string command_string, parameter;
+   std::stringstream input_sstream(gcode_input_line);
    int command_int;
    getline(input_sstream, command_string, ' ');
    if(command_string[0] == 'M'){
@@ -59,26 +62,28 @@ Command selectCommandParameter(const std::string gcode_input_line){
    }
 
    if(command_int == 6){
-        std::map<int, float> parameterMap;
+        std::vector<float> parameterMap;
+        for(auto it = parameterMap.begin(); getline(input_sstream, parameter, ' '); it++){
+               parameterMap.insert(it, stof(parameter));
+        }
     }else{
-        std::map<int, int> parameterMap;
-    }
-    while(!gcode_input_line.eof()){
-        getline(gcode_input_line, parameter, ' ');
-        parameterMap.insert(stof(parameter);
+        std::vector<int> parameterMap;
+        for(auto it = parameterMap.begin(); getline(input_sstream, parameter, ' '); it++){
+               parameterMap.insert(it, stoi(parameter));
+        }
+
     }
 //maybe safe the map somehwere?
 }
 
-int main(void){
+int GParser(void){
     std::string gcode_input_line;
     std::ifstream input_file;
     input_file.open("gcode.txt");
     while(!input_file.eof()){
         getline(input_file, gcode_input_line, '\n');
-        selectCommandParameter(gcode_input_line){
+        selectCommandParameter(gcode_input_line);
     }
     input_file.close();
-
     return 0;
 }
