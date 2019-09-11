@@ -1,0 +1,256 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     :
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+#include "ITM_write.h"
+
+#include <string>
+#include <cstring>
+#include <iostream>
+#include <sstream>
+#include <fstream>
+// TODO: insert other definitions and declarations here
+
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+
+	/* Initial LED0 state is off */
+	Board_LED_Set(0, false); //red
+	Board_LED_Set(1, false); //green
+	Board_LED_Set(2, false); //blue
+}
+
+SemaphoreHandle_t binary = NULL;
+DigitalIoPin *dipsw1;
+DigitalIoPin *dipsw2;
+DigitalIoPin *dipsw3;
+DigitalIoPin *dipsw4;
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+static void vTask1(void *pvParameters){
+
+
+	dipsw1 = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	dipsw2 = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 far from motor
+	dipsw3 = new DigitalIoPin(1, 0, DigitalIoPin::output, true);		//DIR
+	dipsw4 = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 	//STEPP
+
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	while(1){
+		if(!dipsw1->read() && !dipsw2->read()){
+			//actual function
+			xSemaphoreGive(binary);
+		}else if(dipsw1->read() && dipsw2->read()){
+			Board_LED_Set(2, true);
+			vTaskDelay(500);
+			Board_LED_Toggle(2);
+			vTaskDelay(500);
+		}else{
+			Board_LED_Set(2, false);
+			if(dipsw1->read()){
+				Board_LED_Set(0, true);
+			}else if(!dipsw1->read()){
+				Board_LED_Set(0, false);
+			}
+			if(dipsw2->read()){
+				Board_LED_Set(1, true);
+			}else if(!dipsw2->read()){
+				Board_LED_Set(1, false);
+			}
+		}
+		xSemaphoreGive(binary);
+	}
+}
+void move(){
+	dipsw4->write(true);
+	vTaskDelay(5);
+	dipsw4->write(false);
+	vTaskDelay(5);
+}
+int counterArray[10];
+int counter = 0, i = 0;
+void addCounter(){
+	counterArray[i] = counter;
+	i++;
+	std::stringstream output;
+	output << "Counter[" <<i<< "]: " << counter << "\r\n";
+	Board_UARTPutStr(output.str().c_str());
+}
+void pulse(){
+		dipsw4->write(true);
+		vTaskDelay(5);
+		dipsw4->write(false);
+		vTaskDelay(5);
+		counter++;
+}
+
+void goLeft(){
+	dipsw3->write(true);
+	vTaskDelay(5);
+	move();
+}
+
+void goRight(){
+	dipsw3->write(false);
+	vTaskDelay(5);
+	move();
+}
+
+void stop(){
+	dipsw4->write(false);
+	vTaskDelay(20);
+}
+
+void algo(){
+	//trigger right
+	if(dipsw1->read() && !SW1->read()){
+		stop();
+		goLeft();
+		pulse();
+	//trigger left
+	}else if(dipsw2->read() && !SW3->read()){
+		stop();
+		goRight();
+		pulse();
+	//trigger right and switch triggered
+	}else if(dipsw1->read() && SW1->read()){
+		stop();
+		goLeft();
+		pulse();
+	//trigger left and switch triggered
+	}else if(dipsw2->read() && SW3->read()){
+		stop();
+		goRight();
+		pulse();
+	//dipsw1 && dipsw2 read
+	}else if(dipsw1->read() && dipsw2->read()){//both switches closed
+		stop();
+		vTaskDelay(5000);
+	//SW1 button read
+	}else if(!dipsw1->read() && SW1->read()){
+		goRight();
+	//SW3 button read
+	}else if(!dipsw2->read() && SW3->read()){
+		goLeft();
+	//not SW button read
+	}else if(!(SW1->read() || SW3->read())){
+		stop();
+		vTaskDelay(10);
+	}else{
+		stop();
+		//vTaskDelay(10);
+	}
+}
+
+void algo2(){
+	if(1){
+		int i = 0;
+	}
+}
+static void vTask2(void *pvParameters){
+
+	dipsw1 = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	dipsw2 = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposire from motor
+	dipsw3 = new DigitalIoPin(1, 0, DigitalIoPin::output, false);		//DIR false-> motor, true <- motor
+	dipsw4 = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
+
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	while(1){
+	//	vTaskDelay(50);
+		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
+			if( dipsw1->read() || dipsw2->read() ){
+				stop();
+				vTaskDelay(10);
+				algo();
+				addCounter();
+			}else{
+				pulse();
+			}
+		}else{
+			vTaskDelay(5);
+			//xSemaphoreGive(binary);
+		}
+	}
+}
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab2, semaphores
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	binary = xSemaphoreCreateBinary();
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
