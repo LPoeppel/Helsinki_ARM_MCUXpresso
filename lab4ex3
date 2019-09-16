@@ -1,0 +1,239 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     :
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+#include "ITM_write.h"
+
+#include <string>
+#include <cstring>
+#include <iostream>
+#include <sstream>
+#include <fstream>
+// TODO: insert other definitions and declarations here
+
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+
+	/* Initial LED0 state is off */
+	Board_LED_Set(0, false); //red
+	Board_LED_Set(1, false); //green
+	Board_LED_Set(2, false); //blue
+}
+
+SemaphoreHandle_t binary = NULL;
+DigitalIoPin *rightSW;
+DigitalIoPin *leftSW;
+DigitalIoPin *dir;
+DigitalIoPin *power;
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+static void vTask1(void *pvParameters){
+
+
+	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 far from motor
+	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, true);		//DIR
+	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 	//STEPP
+
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	while(1){
+		if(!rightSW->read() && !leftSW->read()){
+			//actual function
+			xSemaphoreGive(binary);
+			Board_LED_Set(0, false);
+			Board_LED_Set(1, false);
+			vTaskDelay(5);
+		}else if(rightSW->read() && leftSW->read()){
+			Board_LED_Set(2, true);
+			vTaskDelay(500);
+			Board_LED_Toggle(2);
+			vTaskDelay(500);
+		}else{
+			Board_LED_Set(2, false);
+			if(rightSW->read()){
+				Board_LED_Set(0, true);
+				vTaskDelay(10);
+			}else if(leftSW->read()){
+				Board_LED_Set(1, true);
+				vTaskDelay(10);
+			}
+			vTaskDelay(10);
+		}
+		xSemaphoreGive(binary);
+	}
+}
+
+#define speed 5
+bool start = false;
+int counter = 0;
+
+void move(){
+	power->write(true);
+	vTaskDelay(speed);
+	power->write(false);
+	vTaskDelay(speed);
+	if(start){
+		counter++;
+	}
+}
+void move(int cycle){
+	for(int i = 0; i <= cycle; i++){
+		move();
+	}
+}
+void move(DigitalIoPin* pin_ptr){
+	while(pin_ptr->read()){
+		move();
+	}
+}
+
+void pointLeft(){
+	dir->write(true);
+}
+void pointRight(){
+	dir->write(false);
+}
+
+void moveLeft(){
+	dir->write(true);
+	move();
+}
+
+void moveRight(){
+	dir->write(false);
+	move();
+}
+
+void stop(){
+	power->write(false);
+	vTaskDelay(2);
+}
+
+void algo(){
+	//trigger right
+	if(rightSW->read()){
+			pointLeft();
+			move(rightSW);
+			vTaskDelay(5);
+	//trigger left
+	}else if(leftSW->read()){
+			pointRight();
+			move(leftSW);
+			vTaskDelay(5);
+	}else if(rightSW->read() && leftSW->read()){//both switches closed
+		stop();
+		vTaskDelay(5000);
+	}else{
+		stop();
+	}
+}
+
+static void vTask2(void *pvParameters){
+
+	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
+	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, false);		//DIR false-> motor, true <- motor
+	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
+
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	while(1){
+		if(counter == 0){
+			if(leftSW->read() || rightSW->read()){
+				stop();
+				start = true;
+				algo();
+				vTaskDelay(5);
+			}
+		}else{
+			Board_LED_Set(2, true);
+			pointRight();
+			move(counter-5);
+			pointLeft();
+			move(counter-5);
+			vTaskDelay(5);
+		}
+	}
+}
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab2, semaphores
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	binary = xSemaphoreCreateBinary();
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
