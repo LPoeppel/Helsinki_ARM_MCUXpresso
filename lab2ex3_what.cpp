@@ -60,7 +60,7 @@ static void vReadTask(void *pvParameters) {
 		input_i = Board_UARTGetChar();
 		if(input_i != EOF){
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				if(input_i == 13){ //ASCII 13 = <LF>
+				if(input_i == 10){ //ASCII 10 = <LF>
 					Board_UARTPutSTR("OK\r\n");
 				}
 			}
