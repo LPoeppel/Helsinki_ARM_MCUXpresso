@@ -29,7 +29,7 @@
 #include "DigitalIoPin.h"
 #include "ITM_write.h"
 
-#define speed 10
+#define speed 1
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -59,56 +59,8 @@ DigitalIoPin *rightSW;
 DigitalIoPin *leftSW;
 DigitalIoPin *dir;
 DigitalIoPin *power;
-DigitalIoPin *SW1;
-DigitalIoPin *SW2;
-DigitalIoPin *SW3;
 
 // PIN Task thread
-static void vPinTask(void *pvParameters) {
-	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
-	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
-	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, false);			//DIR false-> motor, true <- motor
-	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
-
-	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
-	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
-	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
-
-	while (1) {
-		//just to keep the task alive
-	}
-}
-
-void move(){
-	power->write(true);
-	vTaskDelay(speed);
-	power->write(false);
-	vTaskDelay(speed);
-}
-
-void move(int steps){
-	for(int i = 0; i <= steps; i++){
-		move();
-	}
-}
-void move(DigitalIoPin* pin_ptr){
-	while(pin_ptr->read()){
-		move();
-	}
-}
-
-void pointLeft(){
-	dir->write(true);
-}
-void pointRight(){
-	dir->write(false);
-}
-
-void stop(){
-	power->write(false);
-	vTaskDelay(2);
-}
-
 
 void move(bool isLeft){
 	dir->write(isLeft);
@@ -119,35 +71,88 @@ void move(bool isLeft){
 	vTaskDelay(speed);
 }
 
+void stop(){
+	power->write(false);
+	vTaskDelay(2);
+}
+
+SemaphoreHandle_t binary = NULL;
+
 static void vMotorTask(void *pvParameters) {
-	pointRight();
-	while(!rightSW->read()){
-		move(false);
-	}
-	int steps = 0;
 
-	while (!leftSW->read()) {
-		move(true);
-		steps++;
-	}
+	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
+	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, false);			//DIR false-> motor, true <- motor
+	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
 
-	for(int i = 0; i < 4; i++){
-		move(false);
-	}
-	steps = steps-8;
-	bool isLeft = false;
-	while(1){
-		for(int i = 0; i < steps; i++ ){
-			move(isLeft);
+	dir->write(false);
+	if(xSemaphoreTake(binary, portMAX_DELAY) == pdFALSE){
+		vTaskDelay(2);
+	}else{
+		while(!rightSW->read()){
+			move(false);
 		}
-		isLeft = !isLeft;
+
+		int steps = 0;
+
+		while (!leftSW->read()) {
+			move(true);
+			steps++;
+		}
+
+		for(int i = 0; i < 18; i++){
+			move(false);
+		}
+		steps = steps-36;
+		bool isLeft = false;
+		bool finish = false;
+		while(!finish){
+			for(int i = 0; i < steps; i++ ){
+				if(leftSW->read() || rightSW->read()){
+					vTaskDelay(1000);
+					if(leftSW->read() && rightSW->read()){
+						finish = true;
+						break;
+					}else{
+						i-=1;
+						while(leftSW->read() || rightSW->read()){stop();}
+					}
+				}else{
+					move(isLeft);
+				}
+			}
+			isLeft = !isLeft;
+		}
 	}
 }
 
 static void vLEDTask(void *pvParameters) {
+	Board_LED_Set(2, false);
+	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
 
 	while (1) {
+		if( leftSW->read() || rightSW->read() ){
+			Board_LED_Toggle(2);
+			vTaskDelay(200);
+		}else{
+			Board_LED_Set(2, false);
+			xSemaphoreGive(binary);
+			while(!(leftSW->read() && rightSW->read())){
+				if( leftSW->read()){
+					Board_LED_Set(0,true);
+					vTaskDelay(500);
+					Board_LED_Set(0,false);
+					vTaskDelay(500);
+				}else if( rightSW->read()){
+					Board_LED_Set(1,true);
+					vTaskDelay(500);
+					Board_LED_Set(1,false);
+					vTaskDelay(500);
+				}
+			}
 
+		}
 	}
 }
 
@@ -178,14 +183,10 @@ void vConfigureTimerForRunTimeStats( void ) {
 int main(void)
 {
 	prvSetupHardware();
-	xTaskCreate(vPinTask, "vTaskPin",
-				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
+	binary = xSemaphoreCreateBinary();
 	xTaskCreate(vLEDTask, "vTaskLED",
 				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
-
 	xTaskCreate(vMotorTask, "vTaskMotor",
 				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
 				(TaskHandle_t *) NULL);
@@ -196,143 +197,3 @@ int main(void)
 	// Should never arrive here
 	return 1;
 }
-
-
-
-
-/*
-===============================================================================
- Name        : main.c
- Author      : $(author)
- Version     :
- Copyright   : $(copyright)
- Description : main definition
-===============================================================================
-*/
-
-/*#if defined (__USE_LPCOPEN)
-#if defined(NO_BOARD_LIB)
-#include "chip.h"
-#else
-#include "board.h"
-#endif
-#endif
-
-#include <cr_section_macros.h>
-
-// TODO: insert other include files here
-
-// TODO: insert other definitions and declarations here
-
-#include "FreeRTOS.h"
-#include "task.h"
-
-/*****************************************************************************
- * Private types/enumerations/variables
- ****************************************************************************/
-
-/*****************************************************************************
- * Public types/enumerations/variables
- ****************************************************************************/
-
-/*****************************************************************************
- * Private functions
- ****************************************************************************/
-
-/* Sets up system hardware
-static void prvSetupHardware(void)
-{
-	SystemCoreClockUpdate();
-	Board_Init();
-
-	/* Initial LED0 state is off
-	Board_LED_Set(0, false);
-}
-/*
-// LED1 toggle thread
-static void vLEDTask1(void *pvParameters) {
-	bool LedState = false;
-
-	while (1) {
-		Board_LED_Set(0, LedState);
-		LedState = (bool) !LedState;
-
-		// About a 3Hz on/off toggle rate
-		vTaskDelay(configTICK_RATE_HZ / 6);
-	}
-}
-
-// LED2 toggle thread
-static void vLEDTask2(void *pvParameters) {
-	bool LedState = false;
-
-	while (1) {
-		Board_LED_Set(1, LedState);
-		LedState = (bool) !LedState;
-
-		// About a 7Hz on/off toggle rate
-		vTaskDelay(configTICK_RATE_HZ / 14);
-	}
-}
-
-// UART (or output) thread
-static void vUARTTask(void *pvParameters) {
-	int tickCnt = 0;
-
-	while (1) {
-		DEBUGOUT("Tick: %d \r\n", tickCnt);
-		tickCnt++;
-
-		// About a 1s delay here
-		vTaskDelay(configTICK_RATE_HZ);
-	}
-}
-*/
-/*****************************************************************************
- * Public functions
- ****************************************************************************
-
-// the following is required if runtime statistics are to be collected
-extern "C" {
-
-/*void vConfigureTimerForRunTimeStats( void ) {
-	Chip_SCT_Init(LPC_SCTSMALL1);
-	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
-	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
-}
-
-}
-// end runtime statictics collection
-
-/**
- * @brief	main routine for FreeRTOS blinky example
- * @return	Nothing, function should not exit
- */
-/*
-int main(void)
-{
-	prvSetupHardware();
-
-	// LED1 toggle thread
-	xTaskCreate(vLEDTask1, "vTaskLed1",
-				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	// LED2 toggle thread
-	xTaskCreate(vLEDTask2, "vTaskLed2",
-				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	// UART output thread, simply counts seconds
-	xTaskCreate(vUARTTask, "vTaskUart",
-				configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-				(TaskHandle_t *) NULL);
-
-	// Start the scheduler
-	vTaskStartScheduler();
-
-	// Should never arrive here
-	return 1;
-}
-*/
-
