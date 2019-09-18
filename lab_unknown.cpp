@@ -87,16 +87,6 @@ void stop(){
 extern "C" {
 void RIT_IRQHandler(void){
 
-
-	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
-	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 far from motor
-	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, true);			//DIR
-	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
-
-	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
-	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
-	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
-
 	// This used to check if a context switch is required
 	portBASE_TYPE xHigherPriorityWoken = pdFALSE;
 	// Tell timer that we have processed the interrupt.
@@ -161,32 +151,27 @@ void analyseInput(std::string input){
 
 }
 
+
 SemaphoreHandle_t mutex = NULL;
 
 //read input
 static void vTask1(void *pvParameters){
 
+	std::stringstream input_s;
+	int input_i;
+	char input_c;
+
 	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
 	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 far from motor
-	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, true);		//DIR
-	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 	//STEPP
+	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, true);			//DIR
+	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
 
 	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
 	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
 	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
-	//std::stringstream input_s;
-	int input_i;
-	char input_c;
+
 
 	while(1){
-			dir->write(false);//right
-			RIT_start(4000, 4000);
-			Board_LED_Set(1, false);
-			Board_LED_Set(2, true);
-			vTaskDelay(10);
-
-
-			/*
 		vTaskDelay(50);
 		input_i = Board_UARTGetChar();
 		Board_LED_Set(2, false);
@@ -196,16 +181,18 @@ static void vTask1(void *pvParameters){
 			Board_UARTPutSTR(input_s.str().c_str());
 			Board_LED_Set(2, true);
 			//analyseInput(input_s.str());
-			/*	char c;
-				c = input_s.str().at(0);
+				char c;
+				std::string string;
+				string = input_s.str();
+				c = string.at(0);
 				if(c == 'l'){
 					dir->write(true);//left
-					steps = std::stoi(input_s.str(), nullptr, 16);
+					steps = std::stoi(input_s.str(), nullptr, 10);
 				}else if(c == 'r'){
 					dir->write(false);//right
-					steps = std::stoi(input_s.str(), nullptr, 16);
+					steps = std::stoi(input_s.str(), nullptr, 10);
 				}else if(c == 'p'){
-					clockrate = std::stoi(input_s.str(), nullptr, 16);;
+					clockrate = std::stoi(input_s.str(), nullptr, 10);
 				}
 
 			Board_LED_Set(1, true);
@@ -218,7 +205,7 @@ static void vTask1(void *pvParameters){
 				input_s << input_c;
 				vTaskDelay(10);
 		}
-		*/
+
 
 
 	}//while(1)
@@ -249,6 +236,15 @@ int main(void)
 	prvSetupHardware();
 	ITM_init();
 	sbRIT = xSemaphoreCreateBinary();
+
+	rightSW = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftSW = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 far from motor
+	dir = new DigitalIoPin(1, 0, DigitalIoPin::output, true);			//DIR
+	power = new DigitalIoPin(0, 24, DigitalIoPin::output, false); 		//STEPP
+
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
 
 	xTaskCreate(vTask1, "vTask1",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
