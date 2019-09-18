@@ -94,10 +94,11 @@ void RIT_IRQHandler(void){
 	Chip_RIT_ClearIntStatus(LPC_RITIMER); // clear IRQ flag
 	if(RIT_count > 0) {
 		RIT_count--;
-		power->write(true);
-
-		power->write(false);
-
+		if( RIT_count % 2 == 0){
+			power->write(true);
+		}else{
+			power->write(false);
+		}
 
 	}
 	else {
@@ -112,11 +113,12 @@ void RIT_IRQHandler(void){
 
 void RIT_start(int count, int us){
 	uint64_t cmp_value;
+	clockrate = 1000000 / (clockrate*2);
 	// Determine approximate compare value based on clock rate and passed interval
 	cmp_value = (uint64_t) Chip_Clock_GetSystemClockRate() * (uint64_t) us / 1000000;
 	// disable timer during configuration
 	Chip_RIT_Disable(LPC_RITIMER);
-	RIT_count = count;
+	RIT_count = count*2;
 	// enable automatic clear on when compare value==timer value
 	// this makes interrupts trigger periodically
 	Chip_RIT_EnableCompClear(LPC_RITIMER);
@@ -184,13 +186,13 @@ static void vTask1(void *pvParameters){
 				char c;
 				std::string string;
 				string = input_s.str();
-				c = string.at(0);
+				c = string.at(5);
 				if(c == 'l'){
 					dir->write(true);//left
 					steps = std::stoi(input_s.str(), nullptr, 10);
 				}else if(c == 'r'){
 					dir->write(false);//right
-					steps = std::stoi(input_s.str(), nullptr, 10);
+					steps = std::stoi(string, nullptr, 10);
 				}else if(c == 'p'){
 					clockrate = std::stoi(input_s.str(), nullptr, 10);
 				}
