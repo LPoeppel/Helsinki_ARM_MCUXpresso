@@ -65,7 +65,6 @@ static void vReadTask(void *pvParameters) {
 	int input_i = 0;
 	while(1){
 		vTaskDelay(10);
-		xSemaphoreTake(binary, portMAX_DELAY);
 		input_i = Board_UARTGetChar();
 		if(input_i != EOF){
 			Board_LED_Set(2, true);
@@ -76,7 +75,6 @@ static void vReadTask(void *pvParameters) {
 					Board_UARTPutSTR(input_s.c_str());
 					input_s.erase();
 					Board_LED_Set(1, false);
-					xSemaphoreGive(mutex);
 				}else{
 					if(input_i == 63){
 						xSemaphoreGive(binary);
@@ -85,8 +83,9 @@ static void vReadTask(void *pvParameters) {
 					input_s.push_back(c);
 				}//else
 				Board_LED_Set(2, false);
-				vTaskDelay(10);
 			}//if pdTRUE
+		}else{
+			xSemaphoreGive(mutex);
 		}
 
 	}//while (1)
@@ -105,9 +104,7 @@ static void vOracleTask(void *pvParameters){
 				xSemaphoreGive(mutex);
 			}
 		}
-		Board_LED_Set(2, false);
 		xSemaphoreGive(mutex);
-		xSemaphoreGive(binary);
 	}
 }
 /*****************************************************************************
