@@ -2,7 +2,7 @@
 ===============================================================================
  Name        : main.c
  Author      : $lpoeppel
- Version     :
+ Version     : lab2ex3
  Copyright   : $(copyright)
  Description : main definition
 ===============================================================================
@@ -15,7 +15,9 @@
 #include "board.h"
 #endif
 #endif
-#include "DigitalIoPin.h"
+
+
+
 #include <cr_section_macros.h>
 
 // TODO: insert other include files here
@@ -23,9 +25,9 @@
 #include "task.h"
 #include "semphr.h"
 
-#include <string>
 // TODO: insert other definitions and declarations here
 
+#include <string>
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -44,30 +46,69 @@ static void prvSetupHardware(void)
 {
 	SystemCoreClockUpdate();
 	Board_Init();
-
-	/* Initial LED0 state is off */
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
 	Board_LED_Set(0, false);
 	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
 }
 
-//Reads from UART input. If <LF> it prints OK,
-//holding the mutex for the print process and
-//instantly releasing it
+SemaphoreHandle_t binary = NULL;
 SemaphoreHandle_t mutex = NULL;
+SemaphoreHandle_t mutexWrite = NULL;
+
+//turn LEDs on if Switch is triggered, off if its not
+
 static void vReadTask(void *pvParameters) {
-	int input_i;
+	std::string input_s;
+	char c = 'a';
+	int input_i = 0;
 	while(1){
+		vTaskDelay(10);
+		xSemaphoreTake(binary, portMAX_DELAY);
 		input_i = Board_UARTGetChar();
 		if(input_i != EOF){
+			Board_LED_Set(2, true);
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				if(input_i == 10){ //ASCII 10 = <LF>
-					Board_UARTPutSTR("OK\r\n");
-				}
-			}
-			xSemaphoreGive(mutex);
+				if(input_i == 13 || input_s.size() >= 30){
+					Board_LED_Set(1, true);
+					input_s.append("\r\n");
+					Board_UARTPutSTR(input_s.c_str());
+					input_s.erase();
+					Board_LED_Set(1, false);
+					xSemaphoreGive(mutex);
+				}else{
+					if(input_i == 63){
+						xSemaphoreGive(binary);
+					}
+					c = input_i;
+					input_s.push_back(c);
+				}//else
+				Board_LED_Set(2, false);
+				vTaskDelay(10);
+			}//if pdTRUE
 		}
-	}
 
+	}//while (1)
+}//vReadTask
+
+static void vOracleTask(void *pvParameters){
+	while(1){
+		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
+			Board_LED_Set(0, false);
+			Board_LED_Set(1, false);
+
+			Board_LED_Set(2, true);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_UARTPutSTR("This works so far.\r\n");
+				Board_LED_Set(2, false);
+				xSemaphoreGive(mutex);
+			}
+		}
+		Board_LED_Set(2, false);
+		xSemaphoreGive(mutex);
+		xSemaphoreGive(binary);
+	}
 }
 /*****************************************************************************
  * Public functions
@@ -92,11 +133,16 @@ void vConfigureTimerForRunTimeStats( void ) {
 int main(void)
 {
 	prvSetupHardware();
+	binary = xSemaphoreCreateBinary();
 	mutex = xSemaphoreCreateMutex();
-	xTaskCreate(vReadTask, "vTaskRead",
-		configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-		(TaskHandle_t *) NULL);
+	mutexWrite = xSemaphoreCreateMutex();
 
+	xTaskCreate(vReadTask, "vTaskRead",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vOracleTask, "vTaskOracle",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
 	/* Start the scheduler */
 	vTaskStartScheduler();
 	/* Should never arrive here */
