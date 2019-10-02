@@ -1,0 +1,158 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab2ex3
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+// TODO: insert other definitions and declarations here
+
+#include <string>
+
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+SemaphoreHandle_t mutex = NULL;
+QueueHandle_t xQueue;
+DigitalIoPin *SW1;
+
+int random1t5(){
+	int i = std::rand() % 5;
+	if (i < 0) {i = -i;}
+	i+= 1;
+	return i;
+}
+
+
+static void vTask1(void *pvParameters) {
+	int send = 0;
+	int intervall = 0;
+	while(1){
+		send = (random1t5() * random1t5() * random1t5());
+		intervall = (random1t5() * 100);
+		xQueueSendToBack( xQueue, &send, (TickType_t) 10 );
+		vTaskDelay(intervall);
+
+	}//while (1)
+}//vTask1
+
+static void vTask2(void *pvParameters){
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	static int x = 112;
+	while(1){
+		if(SW1->read()){
+			Board_LED_Set(0,false);
+			Board_LED_Set(1,true);
+			Board_LED_Set(2,false);
+			xQueueSendToFront( xQueue, &x, (TickType_t) 10 );
+			vTaskDelay(1000);
+			Board_LED_Set(1,false);
+		}
+	}//while (1)
+}//vTask2
+
+static void vTask3(void *pvParameters){
+	int value = 0;
+	while(1){
+		if(xQueueReceive( xQueue, &value, (TickType_t) 10 )){
+			if(value == 112){
+				Board_LED_Set(1,true);
+				if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+					printf("Help me!\r\n");
+					vTaskDelay(200);
+					Board_LED_Set(1,true);
+					xSemaphoreGive(mutex);
+				}
+			}else{
+				Board_LED_Set(2,true);
+				if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+					printf("%d\r\n", value);
+					Board_LED_Set(2,false);
+					xSemaphoreGive(mutex);
+				}
+			}
+		}
+
+	}//while (1)
+}//vTask2
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab2, semaphores
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	mutex = xSemaphoreCreateMutex();
+	xQueue = xQueueCreate( 20, sizeof(int) );
+
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask3, "vTask3",
+						configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+						(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
