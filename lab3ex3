@@ -1,0 +1,197 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab2ex3
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+#include <time.h>
+#include <cctype>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+SemaphoreHandle_t mutex = NULL;
+QueueHandle_t xQueue;
+DigitalIoPin *SW1;
+
+int random1t5(){
+	int i = std::rand() % 5;
+	if (i < 0) {i = -i;}
+	i+= 1;
+	return i;
+}
+
+struct debugEvent {
+ char *format;
+ uint32_t data[3];
+};
+
+std::string debug(std::string *input, uint32_t counter){
+	Board_LED_Set(0, true);
+	int time = (xTaskGetTickCount() / 1000);
+
+	std::string string = "Received cmd: ";
+	string.append(*input);
+	string.append(" | with ");
+	string.append(std::to_string(counter));
+	string.append(" Bytes at %2d:%2d", (time)/60, (time)%60);
+	Board_LED_Set(0, false);
+	return string;
+}
+
+static void vTask1(void *pvParameters) {
+	std::string input_s;
+	std::string *output_s;
+	int counter = 0;
+	int input_i = 0;
+	char c;
+	while(1){
+		input_i = Board_UARTGetChar();
+		if(input_i != EOF){
+			Board_LED_Set(2, true);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				c = input_i;
+				if(std::isspace(c)){
+					if(!input_s.empty()){
+						output_s = new std::string(debug(&input_s, counter));
+						xQueueSendToBack( xQueue, output_s ,(TickType_t) 10 );
+						input_s.erase();
+					}
+					counter = 0;
+				}else{
+					input_s.push_back(c);
+					counter++;
+				}//else 13 || 10
+				Board_LED_Set(2, false);
+			}//if pdTRUE
+		}else{
+			xSemaphoreGive(mutex);
+		}
+	}//while (1)
+}//vTask1
+
+static void vTask2(void *pvParameters){
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	static int x = 112;
+	while(1){
+		if(SW1->read()){
+			Board_LED_Set(0,false);
+			Board_LED_Set(1,true);
+			Board_LED_Set(2,false);
+			xQueueSendToFront( xQueue, &x, (TickType_t) 10 );
+			vTaskDelay(1000);
+			Board_LED_Set(1,false);
+		}
+	}//while (1)
+}//vTask2
+
+static void vTask3(void *pvParameters){
+	std::string *input_s;
+	//char buffer[64];
+
+	while(1){
+		if(xQueueReceive(xQueue, input_s, portMAX_DELAY)){
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_LED_Set(0, true);
+				Board_LED_Set(1, true);
+				Board_LED_Set(2, true);
+				/*std::copy(input->begin(), input->end(), buffer);
+				buffer[input->size()] = '\0';*/
+				ITM_write((input_s->c_str()));
+				delete input_s;
+				vTaskDelay(1000);
+				Board_LED_Set(0, false);
+				Board_LED_Set(1, false);
+				Board_LED_Set(2, false);
+			}
+		}
+
+		xSemaphoreGive(mutex);
+		vTaskDelay(10);
+	}//while (1)
+}//vTask2
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab2, semaphores
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	mutex = xSemaphoreCreateMutex();
+	xQueue = xQueueCreate( 20, sizeof(std::string*) );
+
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask3, "vTask3",
+						configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+						(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
