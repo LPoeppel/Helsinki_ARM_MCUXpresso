@@ -67,12 +67,26 @@ int random1t5(){
 
 std::string debug(std::string *input, uint32_t counter){
 	Board_LED_Set(0, true);
-	//int time = (xTaskGetTickCount() / 1000);
+
 	std::string string = "Received cmd: ";
 	string.append(*input);
 	string.append(" | with ");
 	string.append(std::to_string(counter));
-	string.append(" Bytes"); //at %2d:%2d", (time)/60, (time)%60);
+		int time = (xTaskGetTickCount() / 1000);
+		std::string timeH = std::to_string(time/60);
+		std::string timeM = std::to_string(time%60);
+		string.append(" Bytes at ");
+		if(timeH < 10){
+			string.append("0");
+		}
+		string.append(timeH);
+		if(timeM < 10){
+			string.append(":0");
+		}else{
+		string.append(":");
+		}
+		string.append(timeM);
+		string.append("\r\n");
 	Board_LED_Set(0, false);
 	return string;
 }
@@ -86,12 +100,11 @@ static void vTask1(void *pvParameters) {
 		input_i = Board_UARTGetChar();
 		if(input_i != EOF){
 			c = input_i;
-			if(std::isspace(c)){
+			if(std::isspace(c) || input_s.size() >= 32){
 				if(!input_s.empty()){
 					output_s = debug(&input_s, counter);
 					const char *buffer = output_s.c_str();
 					xQueueSendToBack(xQueue, &buffer, portMAX_DELAY);
-					printf(buffer);
 					input_s.erase();
 					vTaskDelay(10);
 				}
@@ -153,16 +166,15 @@ int main(void)
 	ITM_init();
 	xQueue = xQueueCreate(20, sizeof(char*));
 
-	xTaskCreate(vTask3, "vTask3",
-						configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
-						(TaskHandle_t *) NULL);
 	xTaskCreate(vTask1, "vTask1",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
 					(TaskHandle_t *) NULL);
-	xTaskCreate(vTask2, "vTask2",
+/*	xTaskCreate(vTask2, "vTask2",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
 					(TaskHandle_t *) NULL);
-
+	*/xTaskCreate(vTask3, "vTask3",
+						configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+						(TaskHandle_t *) NULL);
 	/* Start the scheduler */
 	vTaskStartScheduler();
 	/* Should never arrive here */
