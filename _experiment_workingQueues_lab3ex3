@@ -58,27 +58,74 @@ SemaphoreHandle_t mutex = NULL;
 QueueHandle_t xQueue;
 DigitalIoPin *SW1;
 
+int random1t5(){
+	int i = std::rand() % 5;
+	if (i < 0) {i = -i;}
+	i+= 1;
+	return i;
+}
+
+std::string debug(std::string *input, uint32_t counter){
+	Board_LED_Set(0, true);
+	//int time = (xTaskGetTickCount() / 1000);
+	std::string string = "Received cmd: ";
+	string.append(*input);
+	string.append(" | with ");
+	string.append(std::to_string(counter));
+	string.append(" Bytes"); //at %2d:%2d", (time)/60, (time)%60);
+	Board_LED_Set(0, false);
+	return string;
+}
+
+static void vTask1(void *pvParameters) {
+	std::string input_s, output_s;
+	int counter = 0, input_i = 0;
+	char c;
+
+	while(1){
+		input_i = Board_UARTGetChar();
+		if(input_i != EOF){
+			c = input_i;
+			if(std::isspace(c)){
+				if(!input_s.empty()){
+					output_s = debug(&input_s, counter);
+					const char *buffer = output_s.c_str();
+					xQueueSendToBack(xQueue, &buffer, portMAX_DELAY);
+					printf(buffer);
+					input_s.erase();
+					vTaskDelay(10);
+				}
+				counter = 0;
+			}else{
+				input_s.push_back(c);
+				counter++;
+			}//else 13 || 10
+		}//if pdTRUE
+	}//while (1)
+}//vTask1
+
 static void vTask2(void *pvParameters){
 	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
-	char const *output = "test\r\n";
-	std::string input = "mystring\r\n";
+	char const *input = "SW1 is pressed.\r\n";
 	while(1){
-		 if(SW1->read()){
+		if(SW1->read()){
 			Board_LED_Set(0,false);
 			Board_LED_Set(1,true);
 			Board_LED_Set(2,false);
-			char const *buffer = input.c_str();
-			xQueueSendToBack(xQueue, &buffer , portMAX_DELAY );
+			xQueueSendToBack(xQueue, &input, portMAX_DELAY);
 			vTaskDelay(1000);
-			xQueueReceive(xQueue, &output, portMAX_DELAY);
-			vTaskDelay(1000);
-			ITM_write(output);
-
-			vTaskDelay(2000);
 			Board_LED_Set(1,false);
 		}
 	}//while (1)
 }//vTask2
+
+static void vTask3(void *pvParameters){
+	char *output = "yolo\r\n";
+	while(1){
+		xQueueReceive(xQueue, &output, portMAX_DELAY);
+		ITM_write(output);
+	}//while (1)
+}//vTask3
 
 /*****************************************************************************
  * Public functions
@@ -104,14 +151,17 @@ int main(void)
 {
 	prvSetupHardware();
 	ITM_init();
-
-	mutex = xSemaphoreCreateMutex();
-	xQueue = xQueueCreate(2, sizeof(char*));
-
-	xTaskCreate(vTask2, "vTask2",
+	xQueue = xQueueCreate(20, sizeof(char*));
+/*
+	xTaskCreate(vTask1, "vTask1",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
 					(TaskHandle_t *) NULL);
-
+*/	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask3, "vTask3",
+						configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+						(TaskHandle_t *) NULL);
 	/* Start the scheduler */
 	vTaskStartScheduler();
 	/* Should never arrive here */
