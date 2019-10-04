@@ -58,102 +58,97 @@ SemaphoreHandle_t mutex = NULL;
 QueueHandle_t xQueue;
 DigitalIoPin *SW1;
 
-int random1t5(){
-	int i = std::rand() % 5;
+int random(int x){
+	int i = std::rand() % x;
 	if (i < 0) {i = -i;}
 	i+= 1;
 	return i;
 }
 
-struct debugEvent {
- char *format;
- uint32_t data[3];
-};
-
 std::string debug(std::string *input, uint32_t counter){
 	Board_LED_Set(0, true);
-	int time = (xTaskGetTickCount() / 1000);
 
 	std::string string = "Received cmd: ";
 	string.append(*input);
 	string.append(" | with ");
 	string.append(std::to_string(counter));
-	string.append(" Bytes at %2d:%2d", (time)/60, (time)%60);
+		int time = (xTaskGetTickCount() / 1000);
+		std::string timeH = std::to_string(time/60);
+		std::string timeM = std::to_string(time%60);
+		string.append(" Bytes at ");
+		if(time/60 < 10){
+			string.append("0");
+		}
+		string.append(timeH);
+		if(time%60 < 10){
+			string.append(":0");
+		}else{
+		string.append(":");
+		}
+		string.append(timeM);
+		string.append("\r\n");
 	Board_LED_Set(0, false);
 	return string;
 }
 
 static void vTask1(void *pvParameters) {
-	std::string input_s;
-	std::string *output_s;
-	int counter = 0;
-	int input_i = 0;
+	std::string input_s, output_s;
+	int counter = 0, input_i = 0;
 	char c;
+
 	while(1){
 		input_i = Board_UARTGetChar();
 		if(input_i != EOF){
-			Board_LED_Set(2, true);
-			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				c = input_i;
-				if(std::isspace(c)){
-					if(!input_s.empty()){
-						output_s = new std::string(debug(&input_s, counter));
-						xQueueSendToBack( xQueue, output_s ,(TickType_t) 10 );
-						input_s.erase();
-					}
-					counter = 0;
-				}else{
-					input_s.push_back(c);
-					counter++;
-				}//else 13 || 10
-				Board_LED_Set(2, false);
-			}//if pdTRUE
-		}else{
-			xSemaphoreGive(mutex);
-		}
+			c = input_i;
+			if(std::isspace(c) || input_s.size() >= 32){
+				if(!input_s.empty()){
+					output_s = debug(&input_s, counter);
+					const char *buffer = output_s.c_str();
+					xQueueSendToBack(xQueue, &buffer, portMAX_DELAY);
+					input_s.erase();
+					vTaskDelay(10);
+				}
+				counter = 0;
+			}else{
+				input_s.push_back(c);
+				counter++;
+			}//else 13 || 10
+		}//if pdTRUE
+		vTaskDelay(5);
 	}//while (1)
 }//vTask1
 
 static void vTask2(void *pvParameters){
 	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
-	static int x = 112;
+	bool print = false;
 	while(1){
-		if(SW1->read()){
-			Board_LED_Set(0,false);
-			Board_LED_Set(1,true);
-			Board_LED_Set(2,false);
-			xQueueSendToFront( xQueue, &x, (TickType_t) 10 );
-			vTaskDelay(1000);
-			Board_LED_Set(1,false);
+		int counter = 0;
+		while(SW1->read()){
+			counter++;
+			vTaskDelay(1);
+			print = true;
 		}
+		if(print){
+			std::string string = "SW1 has been pressed for ";
+			string.append(std::to_string(counter));
+			string.append(" milliseconds.\r\n");
+			char const *output = string.c_str();
+			ITM_write(output);
+			print = false;
+			vTaskDelay(1);
+		}
+		vTaskDelay(5);
 	}//while (1)
 }//vTask2
 
 static void vTask3(void *pvParameters){
-	std::string *input_s;
-	//char buffer[64];
-
+	char *output = "yolo\r\n";
 	while(1){
-		if(xQueueReceive(xQueue, input_s, portMAX_DELAY)){
-			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_LED_Set(0, true);
-				Board_LED_Set(1, true);
-				Board_LED_Set(2, true);
-				/*std::copy(input->begin(), input->end(), buffer);
-				buffer[input->size()] = '\0';*/
-				ITM_write((input_s->c_str()));
-				delete input_s;
-				vTaskDelay(1000);
-				Board_LED_Set(0, false);
-				Board_LED_Set(1, false);
-				Board_LED_Set(2, false);
-			}
-		}
-
-		xSemaphoreGive(mutex);
-		vTaskDelay(10);
+		xQueueReceive(xQueue, &output, portMAX_DELAY);
+		ITM_write(output);
 	}//while (1)
-}//vTask2
+}//vTask3
+
 /*****************************************************************************
  * Public functions
  ****************************************************************************/
@@ -171,15 +166,14 @@ void vConfigureTimerForRunTimeStats( void ) {
 /* end runtime statictics collection */
 
 /**
- * @brief	lab2, semaphores
+ * @brief	lab3, queues
  * @return	Nothing, function should not exit
  */
 int main(void)
 {
 	prvSetupHardware();
 	ITM_init();
-	mutex = xSemaphoreCreateMutex();
-	xQueue = xQueueCreate( 20, sizeof(std::string*) );
+	xQueue = xQueueCreate(20, sizeof(char*));
 
 	xTaskCreate(vTask1, "vTask1",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 2UL),
