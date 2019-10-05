@@ -1,0 +1,191 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab2ex3
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+#include "event_groups.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+#include <time.h>
+#include <cctype>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+SemaphoreHandle_t binary = NULL;
+SemaphoreHandle_t mutex = NULL;
+EventGroupHandle_t xEventGroup;
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+#define value1 xEventGroup
+#define value2 0x01
+#define value3 pdFALSE
+#define value4 pdTRUE
+#define value5 portMAX_DELAY
+
+int random(int x){
+	int i = std::rand() % x;
+	if (i < 0) {i = -i;}
+	i+= x;
+	return i;
+}
+
+static void vTask1(void *pvParameters) {
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+	vTaskDelay(100);
+	while(1){
+		if(SW1->read() || SW2->read() || SW3->read()){
+			xEventGroupSetBits(xEventGroup, 0x01);
+		}
+		vTaskDelay(5);
+	}//while (1)
+}//vTask1
+
+static void vTask2(void *pvParameters) {
+	vTaskDelay(100);
+	int wait = random(10)*100;
+	while(1){
+		if(xEventGroupWaitBits(value1, value2, value3, value4, value5)){
+			vTaskDelay(1600);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_UARTPutSTR("Task2\r\n");
+			}
+			Board_LED_Set(0, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(0, false);
+
+		}
+	}//while (1)
+}//vTask2
+
+static void vTask3(void *pvParameters) {
+	vTaskDelay(100);
+	int wait = random(10)*100;
+	while(1){
+		if(xEventGroupWaitBits(value1, value2, value3, value4, value5))	{
+			vTaskDelay(1200);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_UARTPutSTR("Task3\r\n");
+			}
+			Board_LED_Set(1, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(1, false);
+			vTaskDelay(wait);
+		}
+
+	}//while (1)
+}//vTask3
+
+static void vTask4(void *pvParameters) {
+	vTaskDelay(100);
+	int wait = random(10)*100;
+	while(1){
+		if(xEventGroupWaitBits(value1, value2, value3, value4, value5))	{
+			vTaskDelay(800);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_UARTPutSTR("Task4\r\n");
+			}
+			vTaskDelay(wait);
+			Board_LED_Set(2, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(2, false);
+		}
+
+	}//while (1)
+}//vTask4
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab6, stepper motor
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	binary = xSemaphoreCreateBinary();
+	mutex = xSemaphoreCreateMutex();
+	xEventGroup = xEventGroupCreate();
+
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask3, "vTask3",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask4, "vTask4",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
