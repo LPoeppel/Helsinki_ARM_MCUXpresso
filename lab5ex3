@@ -1,0 +1,194 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $(author)
+ Version     :
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "ITM_write.h"
+
+#include <mutex>
+#include "Fmutex.h"
+#include "user_vcom.h"
+
+// TODO: insert other definitions and declarations here
+#define cLength 100
+#include <string.h>
+#include <string>
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+
+	/* Initial LED0 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+SemaphoreHandle_t mutex = NULL;
+SemaphoreHandle_t binary = NULL;
+
+std::string chooseOutput(){
+	int i = std::rand() % 5;
+	if (i < 0) {i = -i;}
+	i+= 1;
+	std::string string = "[Oracle] ";
+	switch(i){
+		case 1: string.append("A very good question indeed.");
+			break;
+		case 2: string.append("I will have to think about that.");
+			break;
+		case 3: string.append("You have too much free time on your hands.");
+			break;
+		case 4: string.append("Do you want me to answer that.");
+			break;
+		case 5: string.append("The future will bring you the answer.");
+			break;
+		default: string.append("This seems interesting.");
+			break;
+	}
+	string.append("\r\n\0");
+	return string;
+}
+/* send data and toggle thread */
+static void send_task(void *pvParameters) {
+	vTaskDelay(100);
+	std::string temp;
+	char d_output[64];
+	char const *s_output = "[Oracle] I'm disturbed by your lack of faith.\r\n\0";
+	while(1){
+			if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
+				Board_LED_Set(0, false);
+				Board_LED_Set(1, false);
+
+				Board_LED_Set(2, true);
+				if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+					USB_send((uint8_t *) s_output, 48);
+					xSemaphoreGive(mutex);
+					vTaskDelay(3000);
+					xSemaphoreTake(mutex, portMAX_DELAY);
+					temp = chooseOutput();
+					int size = temp.size();
+					strcpy(d_output, temp.c_str());
+					temp.erase();
+					USB_send((uint8_t *) &d_output, size+1);
+					xSemaphoreGive(mutex);
+					vTaskDelay(2000);
+					Board_LED_Set(2, false);
+				}
+			}else{
+				xSemaphoreGive(mutex);
+			}
+			vTaskDelay(5);
+		}
+}
+
+
+/* LED1 toggle thread */
+static void receive_task(void *pvParameters) {
+	vTaskDelay(100);
+	bool trigger = false;
+	int value = 6;
+	while(1){
+		vTaskDelay(10);
+		char input[80];
+		char str[80];
+		uint32_t len = USB_receive((uint8_t *)str, 79);
+		for(uint32_t i = 0; i <= len; i++){
+				input[value] = str[i];
+				value++;
+				if(str[i] == 63){
+					trigger = true;
+				}//?
+		}//for
+		for(uint32_t i = 0; i <= len; i++){
+				if(str[i] == 13){
+					ITM_write(input);
+					input[value] = 10;
+					input[value+1] = 13;
+					input[value+2] = 0;
+					input[0] = '[';
+					input[1] = 'Y';
+					input[2] = 'o';
+					input[3] = 'u';
+					input[4] = ']';
+					input[5] = ' ';
+					USB_send((uint8_t *) &input, value+3);
+					vTaskDelay(5);
+					for(int j = 0; j <= value+2; j++){
+						input[j] = 0;
+					}
+					value = 6;
+					vTaskDelay(5);
+					if(trigger){
+						trigger = false;
+						xSemaphoreGive(binary);
+					}//trigger
+				}//?
+		}//for
+
+		str[len] = 0; /* make sure we have a zero at the end so that we can print the data */
+		ITM_write(str);
+		vTaskDelay(5);
+	}//while (1)
+}
+
+
+int main(void) {
+
+	prvSetupHardware();
+	ITM_init();
+	binary = xSemaphoreCreateBinary();
+	mutex = xSemaphoreCreateMutex();
+	/* LED1 toggle thread */
+	xTaskCreate(send_task, "Tx",
+				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+
+	/* LED1 toggle thread */
+	xTaskCreate(receive_task, "Rx",
+				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+
+	/* LED2 toggle thread */
+	xTaskCreate(cdc_task, "CDC",
+				configMINIMAL_STACK_SIZE, NULL, (tskIDLE_PRIORITY + 1UL),
+				(TaskHandle_t *) NULL);
+
+
+	/* Start the scheduler */
+	vTaskStartScheduler();
+
+	/* Should never arrive here */
+	return 1;
+}
