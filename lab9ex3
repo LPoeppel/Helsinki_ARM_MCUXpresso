@@ -185,6 +185,7 @@ static void vTask4(void *pvParameters) {
 					Board_UARTPutSTR("ms since last Bit_2 set.\r\n");
 				}
 			}
+			vTaskSuspend(NULL);
 			vTaskDelay(100);
 		}
 
