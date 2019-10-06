@@ -111,8 +111,10 @@ static void vTask1(void *pvParameters) {
 		 		Board_UARTPutSTR(string(xTaskGetTickCount()).c_str());
 				Board_UARTPutSTR("\tTask1\r\n");
 			}
+			vTaskDelay(10);
 			xSemaphoreGive(mutex);
 			vTaskDelay(100);
+			xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
 		}
 		vTaskDelay(100);
 	}//while (1)
@@ -142,8 +144,10 @@ static void vTask2(void *pvParameters) {
 				Board_UARTPutSTR((string(xTaskGetTickCount())).c_str());
 				Board_UARTPutSTR("\tTask2\r\n");
 			}
+			vTaskDelay(10);
 			xSemaphoreGive(mutex);
 			vTaskDelay(100);
+			xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
 		}
 		vTaskDelay(100);
 	}//while (1)
@@ -173,8 +177,10 @@ static void vTask3(void *pvParameters) {
 				Board_UARTPutSTR((string(xTaskGetTickCount())).c_str());
 				Board_UARTPutSTR("\tTask3\r\n");
 			}
-			vTaskDelay(100);
+			vTaskDelay(10);
 			xSemaphoreGive(mutex);
+			vTaskDelay(100);
+			xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
 		}
 		vTaskDelay(100);
 	}//while (1)
