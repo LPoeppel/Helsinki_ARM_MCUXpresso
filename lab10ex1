@@ -1,0 +1,150 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab9ex2
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+#include "timers.h"
+#include "queue.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+SemaphoreHandle_t binary = NULL;
+SemaphoreHandle_t mutex = NULL;
+QueueHandle_t xQueue;
+TimerHandle_t xTimers[5];
+
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+void vTimerCallback( TimerHandle_t xTimer ){
+	 xSemaphoreGive(binary);
+}//TimerCallback
+
+//reload
+void vTimerCallback1( TimerHandle_t xTimer ){
+	std::string *string = new std::string("hello\r\n");
+	char const *command = (*string).c_str();
+	xQueueSendToBack(xQueue, &command, (TickType_t) 10  );
+}//TimerCallback reload
+
+/************************************************************/
+/************************************************************/
+/************************************************************/
+
+static void vTask1(void *pvParameters) {
+	vTaskDelay(100);
+	char *cmd;
+	while(1){
+		if(xQueueReceive(xQueue, &cmd, (TickType_t) 20 )){
+			vTaskDelay(10);
+			Board_UARTPutSTR(cmd);
+		}
+		vTaskDelay(10);
+	}//while (1)
+}//vTask1
+
+static void vTask2(void *pvParameters) {
+	vTaskDelay(100);
+	std::string string = "aargh\r\n";
+	char const *cmd = string.c_str();
+	while(1){
+		if(xSemaphoreTake(binary, portMAX_DELAY) == pdTRUE){
+			xQueueSendToBack(xQueue, &cmd, (TickType_t) 10 );
+			vTaskDelay(10);
+		}
+		vTaskDelay(10);
+	}//while (1)
+}//vTask2
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab6, stepper motor
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	mutex = xSemaphoreCreateMutex();
+	binary = xSemaphoreCreateBinary();
+	xQueue = xQueueCreate(20, sizeof(char*));
+    xTimers[0] = xTimerCreate
+    		( "ReloadTimer", 5*1000, pdTRUE, ( void * ) 0, vTimerCallback1);
+    xTimers[1] = xTimerCreate
+    		( "OneShotTimer", 20*1000, pdFALSE, ( void * ) 0, vTimerCallback);
+    xTimerStart(xTimers[1], 0);
+    xTimerStart(xTimers[0], 0);
+
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
