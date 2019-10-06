@@ -1,0 +1,237 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab9ex2
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+#include "event_groups.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+#include <time.h>
+#include <cctype>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+SemaphoreHandle_t binary = NULL;
+SemaphoreHandle_t mutex = NULL;
+EventGroupHandle_t xEventGroup;
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+#define BIT_0 ( 1 << 0 )
+#define BIT_1 ( 1 << 1 )
+#define BIT_2 ( 1 << 2 )
+#define BIT_3 ( 1 << 3 )
+
+int counterT1 = 0;
+int counterT2 = 0;
+int counterT3 = 0;
+
+int random(int x){
+	int i = std::rand() % x;
+	if (i < 0) {i = -i;}
+	i+= x;
+	return i;
+}
+
+static void vTask1(void *pvParameters) {
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	int value = 0;
+	bool trigger = false;
+	vTaskDelay(100);
+	while(1){
+		if(trigger){
+			Board_LED_Set(0, true);
+		}else{
+			Board_LED_Set(0, false);
+		}
+		if(SW1->read()){
+			value += 1;
+			trigger = true;
+		}else if(trigger && value > 0){
+			xEventGroupSetBits(xEventGroup, BIT_0);
+			trigger = false;
+			counterT1 = xTaskGetTickCount() - counterT1;
+		}
+		vTaskDelay(10);
+	}//while (1)
+}//vTask1
+
+static void vTask2(void *pvParameters) {
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	vTaskDelay(100);
+	int value = 0;
+	bool trigger = false;
+	while(1){
+	if(trigger){
+			Board_LED_Set(1, true);
+		}else{
+			Board_LED_Set(1, false);
+		}
+		if(SW2->read()){
+			value += 1;
+			trigger = true;
+		}else if(trigger && value > 0){
+			xEventGroupSetBits(xEventGroup, BIT_1);
+			trigger = false;
+			counterT2 = xTaskGetTickCount() - counterT2;
+		}
+		vTaskDelay(10);
+	}//while (1)
+}//vTask2
+
+static void vTask3(void *pvParameters) {
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+	vTaskDelay(100);
+	bool trigger = false;
+	int value = 0;
+	while(1){
+		if(trigger){
+				Board_LED_Set(2, true);
+			}else{
+				Board_LED_Set(2, false);
+			}
+			if(SW3->read()){
+				value += 1;
+				trigger = true;
+			}else if(trigger && value > 0){
+				xEventGroupSetBits(xEventGroup, BIT_2);
+				trigger = false;
+				counterT3 = xTaskGetTickCount() - counterT3;
+			}
+			vTaskDelay(10);
+	}//while (1)
+}//vTask3
+
+static void vTask4(void *pvParameters) {
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+	EventBits_t uxBits;
+	vTaskDelay(100);
+	int counter = 0;
+	while(1){
+		vTaskDelay(9900);
+		uxBits = xEventGroupWaitBits(xEventGroup, BIT_0 & BIT_1 & BIT_2, pdTRUE, pdTRUE, portMAX_DELAY);
+		if( uxBits == 7){
+			Board_LED_Set(2, true);
+			counter = xTaskGetTickCount() - counter;
+			Board_UARTPutSTR(std::to_string(counter).c_str());
+			Board_UARTPutSTR("ms since last tick.\r\n");
+			vTaskDelay(100);
+			Board_LED_Set(2, false);
+			xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
+		}else{
+			Board_UARTPutSTR("The deadline has been missed.\r\n");
+			if((uxBits & ( BIT_0 | BIT_1 | BIT_2 )) == 0){
+				Board_UARTPutSTR("No Bits were set.\r\n");
+			}else{
+				if( ( uxBits & BIT_0 ) == 0 ){
+					Board_UARTPutSTR("Bit_0 was not set. ");
+					Board_UARTPutSTR(std::to_string(counterT1).c_str());
+					Board_UARTPutSTR("ms since last Bit_0 set.\r\n");
+
+				}
+				if( ( uxBits & BIT_1 ) == 0 ){
+					Board_UARTPutSTR("Bit_1 was not set. ");
+					Board_UARTPutSTR(std::to_string(counterT2).c_str());
+					Board_UARTPutSTR("ms since last Bit_1 set.\r\n");
+				}
+				if( ( uxBits & BIT_2 ) == 0 ){
+					Board_UARTPutSTR("Bit_2 was not set. ");
+					Board_UARTPutSTR(std::to_string(counterT3).c_str());
+					Board_UARTPutSTR("ms since last Bit_2 set.\r\n");
+				}
+			}
+			vTaskDelay(100);
+		}
+
+	}//while (1)
+}//vTask4
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab6, stepper motor
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+	mutex = xSemaphoreCreateMutex();
+	xEventGroup = xEventGroupCreate();
+
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask3, "vTask3",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask4, "vTask4",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
