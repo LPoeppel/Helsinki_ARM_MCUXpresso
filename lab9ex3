@@ -170,18 +170,18 @@ static void vTask4(void *pvParameters) {
 			}else{
 				if( ( uxBits & BIT_0 ) == 0 ){
 					Board_UARTPutSTR("Bit_0 was not set. ");
-					Board_UARTPutSTR(std::to_string(counterT1).c_str());
+					Board_UARTPutSTR(std::to_string(xTaskGetTickCount()-counterT1).c_str());
 					Board_UARTPutSTR("ms since last Bit_0 set.\r\n");
 
 				}
 				if( ( uxBits & BIT_1 ) == 0 ){
 					Board_UARTPutSTR("Bit_1 was not set. ");
-					Board_UARTPutSTR(std::to_string(counterT2).c_str());
+					Board_UARTPutSTR(std::to_string(xTaskGetTickCount()-counterT2).c_str());
 					Board_UARTPutSTR("ms since last Bit_1 set.\r\n");
 				}
 				if( ( uxBits & BIT_2 ) == 0 ){
 					Board_UARTPutSTR("Bit_2 was not set. ");
-					Board_UARTPutSTR(std::to_string(counterT3).c_str());
+					Board_UARTPutSTR(std::to_string(xTaskGetTickCount()-counterT3).c_str());
 					Board_UARTPutSTR("ms since last Bit_2 set.\r\n");
 				}
 			}
