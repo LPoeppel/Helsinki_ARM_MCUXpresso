@@ -1,0 +1,122 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab9ex2
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+#include "timers.h"
+#include "queue.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+TimerHandle_t xTimer;
+
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+void vTimerCallback( TimerHandle_t xTimer ){
+	 	 Board_LED_Set(1, false);
+}//TimerCallback
+
+/************************************************************/
+/************************************************************/
+/************************************************************/
+
+static void vTask1(void *pvParameters) {
+	vTaskDelay(100);
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	while(1){
+		vTaskDelay(10);
+		if(SW1->read() || SW2->read() || SW3->read()){
+			Board_LED_Set(1, true);
+			xTimerStart(xTimer, 0);
+			xTimerReset(xTimer, 0);
+			vTaskDelay(100);
+		}
+	}//while (1)
+}//vTask1
+
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab6, stepper motor
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+
+    xTimer = xTimerCreate( "ReloadTimer", 5*1000, pdTRUE, ( void * ) 0, vTimerCallback);
+	xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
