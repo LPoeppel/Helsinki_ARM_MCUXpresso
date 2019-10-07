@@ -153,8 +153,7 @@ static void vTask4(void *pvParameters) {
 	vTaskDelay(100);
 	int counter = 0;
 	while(1){
-		vTaskDelay(9900);
-		uxBits = xEventGroupWaitBits(xEventGroup, BIT_0 & BIT_1 & BIT_2, pdTRUE, pdTRUE, portMAX_DELAY);
+		uxBits = xEventGroupWaitBits(xEventGroup, BIT_0 | BIT_1 | BIT_2, pdTRUE, pdTRUE, 20);
 		if( uxBits == 7){
 			Board_LED_Set(2, true);
 			counter = xTaskGetTickCount() - counter;
@@ -162,8 +161,8 @@ static void vTask4(void *pvParameters) {
 			Board_UARTPutSTR("ms since last tick.\r\n");
 			vTaskDelay(100);
 			Board_LED_Set(2, false);
-			xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
-		}else{
+			//xEventGroupClearBits(xEventGroup, (BIT_0 | BIT_1 | BIT_2));
+		}else if(counter == 30000){
 			Board_UARTPutSTR("The deadline has been missed.\r\n");
 			if((uxBits & ( BIT_0 | BIT_1 | BIT_2 )) == 0){
 				Board_UARTPutSTR("No Bits were set.\r\n");
