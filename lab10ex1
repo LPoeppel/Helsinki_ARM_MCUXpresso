@@ -68,9 +68,9 @@ void vTimerCallback( TimerHandle_t xTimer ){
 }//TimerCallback
 
 //reload
+std::string string = "hello\r\n";
 void vTimerCallback1( TimerHandle_t xTimer ){
-	std::string *string = new std::string("hello\r\n");
-	char const *command = (*string).c_str();
+	char const *command = (string).c_str();
 	xQueueSendToBack(xQueue, &command, (TickType_t) 10  );
 }//TimerCallback reload
 
