@@ -2,7 +2,7 @@
 ===============================================================================
  Name        : main.c
  Author      : $lpoeppel
- Version     : lab9ex2
+ Version     : lab2ex3
  Copyright   : $(copyright)
  Description : main definition
 ===============================================================================
@@ -61,11 +61,6 @@ EventGroupHandle_t xEventGroup;
 DigitalIoPin *SW1;
 DigitalIoPin *SW2;
 DigitalIoPin *SW3;
-#define value1 xEventGroup
-#define value2 0x07
-#define value3 pdTRUE
-#define value4 pdTRUE
-#define value5 portMAX_DELAY
 #define BIT_0 ( 1 << 0 )
 #define BIT_1 ( 1 << 1 )
 #define BIT_2 ( 1 << 2 )
@@ -76,7 +71,6 @@ DigitalIoPin *SW3;
 #define BIT_7 ( 1 << 7 )
 #define ALL_BITS (BIT_0 | BIT_1 | BIT_2)
 
-
 int random(int x){
 	int i = std::rand() % x;
 	if (i < 0) {i = -i;}
@@ -84,92 +78,74 @@ int random(int x){
 	return i;
 }
 
-std::string string(int value){
-	int min = (value / 1000) / 60;
-	int sec = (value / 1000) % 60;
-	std::string output;
-	output.append(std::to_string(min));
-	output.push_back(':');
-	output.append(std::to_string(sec));
-	return output;
-}
-
 static void vTask1(void *pvParameters) {
 	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
 	vTaskDelay(100);
 	while(1){
-		if(SW1->read()){
-			Board_LED_Set(0, true);
-
-			xEventGroupSync( xEventGroup, BIT_0, ALL_BITS, portMAX_DELAY );
-			Board_LED_Set(0, false);
-			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
-				Board_UARTPutSTR("\tTask1\r\n");
-//				vTaskDelay(1);
-				xSemaphoreGive(mutex);
-			}
-			vTaskDelay(1);
+		if(SW1->read() || SW2->read() || SW3->read()){
+			xEventGroupSetBits(xEventGroup, 0x01);
 		}
+		vTaskDelay(5);
 	}//while (1)
 }//vTask1
 
 static void vTask2(void *pvParameters) {
-	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
 	vTaskDelay(100);
-	int counter = 0;
+	int wait = random(10)*100;
 	while(1){
-		if(SW2->read())	{
-			Board_LED_Set(1, true);
-			counter++;
-			vTaskDelay(500);
-			Board_LED_Set(1, false);
-		}
-		vTaskDelay(5);
-		if(counter >= 2){
-			Board_LED_Set(1, true);
-
-			xEventGroupSync( xEventGroup, BIT_1, ALL_BITS, portMAX_DELAY );
-			Board_LED_Set(1, false);
-			counter = 0;
+		if(xEventGroupWaitBits(xEventGroup, BIT_0, pdFALSE, pdTRUE, 20)){
+			vTaskDelay(1600);
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
-				Board_UARTPutSTR("\tTask2\r\n");
-//				vTaskDelay(1);
-				xSemaphoreGive(mutex);
+				Board_UARTPutSTR("Task2\r\n");
 			}
-			vTaskDelay(1);
+			Board_LED_Set(0, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(0, false);
+
 		}
 	}//while (1)
 }//vTask2
 
 static void vTask3(void *pvParameters) {
-	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
 	vTaskDelay(100);
-	int counter = 0;
+	int wait = random(10)*100;
 	while(1){
-		if(SW3->read())	{
-			Board_LED_Set(2, true);
-			counter++;
-			vTaskDelay(500);
-			Board_LED_Set(2, false);
-		}
-		vTaskDelay(5);
-		if(counter >= 3){
-			Board_LED_Set(2, true);
-
-			xEventGroupSync( xEventGroup, BIT_2, ALL_BITS, portMAX_DELAY );
-			Board_LED_Set(2, false);
-			counter = 0;
+		if(xEventGroupWaitBits(xEventGroup, BIT_0, pdFALSE, pdTRUE, 20))	{
+			vTaskDelay(1200);
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
-				Board_UARTPutSTR("\tTask3\r\n");
-				xSemaphoreGive(mutex);
+				Board_UARTPutSTR("Task3\r\n");
 			}
-			vTaskDelay(1);
+			Board_LED_Set(1, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(1, false);
+			vTaskDelay(wait);
 		}
+
 	}//while (1)
 }//vTask3
+
+static void vTask4(void *pvParameters) {
+	vTaskDelay(100);
+	int wait = random(10)*100;
+	while(1){
+		if(xEventGroupWaitBits(xEventGroup, BIT_0, pdFALSE, pdTRUE, 20))	{
+			vTaskDelay(800);
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				Board_UARTPutSTR("Task4\r\n");
+			}
+			vTaskDelay(wait);
+			Board_LED_Set(2, true);
+			xSemaphoreGive(mutex);
+			vTaskDelay(wait);
+			Board_LED_Set(2, false);
+		}
+
+	}//while (1)
+}//vTask4
 
 /*****************************************************************************
  * Public functions
@@ -195,6 +171,7 @@ int main(void)
 {
 	prvSetupHardware();
 	ITM_init();
+	binary = xSemaphoreCreateBinary();
 	mutex = xSemaphoreCreateMutex();
 	xEventGroup = xEventGroupCreate();
 
@@ -205,6 +182,9 @@ int main(void)
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
 					(TaskHandle_t *) NULL);
 	xTaskCreate(vTask3, "vTask3",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask4, "vTask4",
 					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
 					(TaskHandle_t *) NULL);
 
