@@ -1,0 +1,168 @@
+/*
+===============================================================================
+ Name        : main.c
+ Author      : $lpoeppel
+ Version     : lab9ex2
+ Copyright   : $(copyright)
+ Description : main definition
+===============================================================================
+*/
+
+#if defined (__USE_LPCOPEN)
+#if defined(NO_BOARD_LIB)
+#include "chip.h"
+#else
+#include "board.h"
+#endif
+#endif
+
+#include "DigitalIoPin.h"
+
+#include <cr_section_macros.h>
+
+// TODO: insert other include files here
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "ITM_write.h"
+#include "timers.h"
+#include "queue.h"
+// TODO: insert other definitions and declarations here
+
+#include <string>
+/*****************************************************************************
+ * Private types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Public types/enumerations/variables
+ ****************************************************************************/
+
+/*****************************************************************************
+ * Private functions
+ ****************************************************************************/
+
+/* Sets up system hardware */
+static void prvSetupHardware(void)
+{
+	SystemCoreClockUpdate();
+	Board_Init();
+	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Board_LED_Set(0, false);
+	Board_LED_Set(1, false);
+	Board_LED_Set(2, false);
+
+}
+
+TimerHandle_t xTimer;
+TimerHandle_t xTimerLED;
+std::string input_s;
+int i_value = 5;
+
+DigitalIoPin *SW1;
+DigitalIoPin *SW2;
+DigitalIoPin *SW3;
+
+void vTimerCallback( TimerHandle_t xTimer ){
+	input_s.erase();
+	Board_UARTPutSTR("[Inactive]\r\n");
+}//TimerCallback
+void vLEDCallback( TimerHandle_t xTimerLED){
+	Board_LED_Toggle(1);
+}
+
+void process(std::string input){
+	std::string help = "help";
+	std::string time = "time";
+	std::string interval = "interval";
+	std::string guide = "help - display usage instructions\r\ninterval<number> - set the led toggle interval in ms(default is 5.000 ms)\r\ntime - prints the number of seconds with 0.1s accuracy since the last led toggle\r\n\r\n";
+	if(input == help){
+		Board_UARTPutSTR(guide.c_str());
+	}else if(input == time){
+		int value = xTimerGetPeriod( xTimerLED )-(xTimerGetExpiryTime( xTimerLED )-xTaskGetTickCount());
+		Board_UARTPutSTR(std::to_string(value).c_str());
+		Board_UARTPutSTR("ms since last LED toggle.\r\n");
+	}else{
+		if(input.substr(0,8) == interval){
+			int length = input.size()-8;
+			int value = std::stoi(input.substr(8, length));
+			xTimerChangePeriod(xTimerLED, value*1000, 0);
+		}else{
+			Board_UARTPutSTR("Not recognized command: '");
+			Board_UARTPutSTR(input.c_str());
+			Board_UARTPutSTR("'\r\n");
+		}
+	}
+}
+
+/************************************************************/
+/************************************************************/
+/************************************************************/
+
+static void vTask1(void *pvParameters) {
+	vTaskDelay(100);
+	SW1 = new DigitalIoPin(0, 17, DigitalIoPin::pullup, true);
+	SW2 = new DigitalIoPin(1, 11, DigitalIoPin::pullup, true);
+	SW3 = new DigitalIoPin(1, 9, DigitalIoPin::pullup, true);
+
+	int input_i;
+
+	char input_c;
+
+	while(1){
+		vTaskDelay(10);
+		input_i = Board_UARTGetChar();
+		if(input_i != EOF){
+			xTimerReset(xTimer, 0);
+			if(input_i == 13){
+				process(input_s);
+				input_s.erase();
+			}else{
+				input_c = input_i;
+				input_s.push_back(input_c);
+			}
+			vTaskDelay(5);
+		}else{
+//
+		}
+	}//while (1)
+}//vTask1
+
+
+/*****************************************************************************
+ * Public functions
+ ****************************************************************************/
+
+/* the following is required if runtime statistics are to be collected */
+extern "C" {
+
+void vConfigureTimerForRunTimeStats( void ) {
+	Chip_SCT_Init(LPC_SCTSMALL1);
+	LPC_SCTSMALL1->CONFIG = SCT_CONFIG_32BIT_COUNTER;
+	LPC_SCTSMALL1->CTRL_U = SCT_CTRL_PRE_L(255) | SCT_CTRL_CLRCTR_L; // set prescaler to 256 (255 + 1), and start timer
+}
+
+}
+/* end runtime statictics collection */
+
+/**
+ * @brief	lab6, stepper motor
+ * @return	Nothing, function should not exit
+ */
+int main(void)
+{
+	prvSetupHardware();
+	ITM_init();
+
+    xTimer = xTimerCreate( "ReloadTimer", 30*1000, pdTRUE, ( void * ) 0, vTimerCallback);
+    xTimerLED = xTimerCreate( "LEDTimer", i_value*1000, pdTRUE, ( void * ) 0, vLEDCallback);
+	xTimerStart(xTimerLED, 0);
+	xTimerStart(xTimer, 0);
+    xTaskCreate(vTask1, "vTask1",
+					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					(TaskHandle_t *) NULL);
+	/* Start the scheduler */
+	vTaskStartScheduler();
+	/* Should never arrive here */
+	return 1;
+}
