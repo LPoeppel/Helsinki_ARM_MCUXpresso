@@ -92,7 +92,7 @@ std::string debug(std::string *input, uint32_t counter){
 }
 
 static void vTask1(void *pvParameters) {
-	std::string input_s, output_s;
+	std::string input_s;
 	int counter = 0, input_i = 0;
 	char c;
 
@@ -102,7 +102,7 @@ static void vTask1(void *pvParameters) {
 			c = input_i;
 			if(std::isspace(c) || input_s.size() >= 32){
 				if(!input_s.empty()){
-					output_s = debug(&input_s, counter);
+					std::string const output_s = debug(&input_s, counter);
 					const char *buffer = output_s.c_str();
 					xQueueSendToBack(xQueue, &buffer, portMAX_DELAY);
 					input_s.erase();
