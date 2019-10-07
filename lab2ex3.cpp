@@ -108,9 +108,9 @@ static void vReadTask(void *pvParameters) {
 					input_s.push_back(c);
 				}//else
 				Board_LED_Set(2, false);
-			}//if pdTRUE
-		}else{
+				
 			xSemaphoreGive(mutex);
+			}//if pdTRUE
 		}
 
 	}//while (1)
@@ -132,9 +132,7 @@ static void vOracleTask(void *pvParameters){
 				xSemaphoreGive(mutex);
 				vTaskDelay(2000);
 				Board_LED_Set(2, false);
-			}
-		}else{
-			xSemaphoreGive(mutex);
+			}	
 		}
 	}
 }
