@@ -100,14 +100,13 @@ static void vTask1(void *pvParameters) {
 	while(1){
 		if(SW1->read()){
 			Board_LED_Set(0, true);
-			xEventGroupSetBits(xEventGroup, BIT_0);
 
 			xEventGroupSync( xEventGroup, BIT_0, ALL_BITS, portMAX_DELAY );
 			Board_LED_Set(0, false);
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((string(xTaskGetTickCount())).c_str());
+				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
 				Board_UARTPutSTR("\tTask1\r\n");
-				vTaskDelay(1);
+//				vTaskDelay(1);
 				xSemaphoreGive(mutex);
 			}
 			vTaskDelay(1);
@@ -129,15 +128,14 @@ static void vTask2(void *pvParameters) {
 		vTaskDelay(5);
 		if(counter >= 2){
 			Board_LED_Set(1, true);
-			xEventGroupSetBits(xEventGroup, BIT_1);
 
 			xEventGroupSync( xEventGroup, BIT_1, ALL_BITS, portMAX_DELAY );
 			Board_LED_Set(1, false);
 			counter = 0;
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((string(xTaskGetTickCount())).c_str());
+				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
 				Board_UARTPutSTR("\tTask2\r\n");
-				vTaskDelay(1);
+//				vTaskDelay(1);
 				xSemaphoreGive(mutex);
 			}
 			vTaskDelay(1);
@@ -159,15 +157,13 @@ static void vTask3(void *pvParameters) {
 		vTaskDelay(5);
 		if(counter >= 3){
 			Board_LED_Set(2, true);
-			xEventGroupSetBits(xEventGroup, BIT_2);
 
 			xEventGroupSync( xEventGroup, BIT_2, ALL_BITS, portMAX_DELAY );
 			Board_LED_Set(2, false);
 			counter = 0;
 			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
-				Board_UARTPutSTR((string(xTaskGetTickCount())).c_str());
+				Board_UARTPutSTR((std::to_string(xTaskGetTickCount())).c_str());
 				Board_UARTPutSTR("\tTask3\r\n");
-				vTaskDelay(1);
 				xSemaphoreGive(mutex);
 			}
 			vTaskDelay(1);
