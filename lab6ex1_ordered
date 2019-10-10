@@ -30,203 +30,124 @@
 #include <string>
 #include <time.h>
 #include <cctype>
-/*****************************************************************************
- * Private types/enumerations/variables
- ****************************************************************************/
+#include <string.h>
 
-/*****************************************************************************
- * Public types/enumerations/variables
- ****************************************************************************/
+// Private types/enumerations/variables
+//
 
-/*****************************************************************************
- * Private functions
- ****************************************************************************/
+//
+// Public types/enumerations/variables
+//
 
-/* Sets up system hardware */
+//
+//  Private functions
+//
+
+// Sets up system hardware
 static void prvSetupHardware(void)
 {
 	SystemCoreClockUpdate();
 	Board_Init();
-	/* Initial greenLED0, redLED1, blueLED2 state is off */
+	Chip_RIT_Init(LPC_RITIMER);
+	NVIC_SetPriority( RITIMER_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY + 1 );
+
+//	 Initial greenLED0, redLED1, blueLED2 state is off
 	Board_LED_Set(0, false);
 	Board_LED_Set(1, false);
 	Board_LED_Set(2, false);
 
 }
 
-SemaphoreHandle_t binary = NULL;
-SemaphoreHandle_t mutex = NULL;
-QueueHandle_t xQueue = NULL;
-DigitalIoPin *SW1;
-DigitalIoPin *SW2;
-DigitalIoPin *SW3;
-
-DigitalIoPin *LMTSW_L;
-DigitalIoPin *LMTSW_R;
-DigitalIoPin *DIR;
-DigitalIoPin *PWR;
 
 volatile uint32_t RIT_count;
 SemaphoreHandle_t sbRIT = NULL;
-int pps = 40000;
+TaskHandle_t Task2 = NULL;
+TaskHandle_t Task3 = NULL;
+QueueHandle_t xQueue = NULL;
+SemaphoreHandle_t mutex = NULL;
+
+DigitalIoPin *DIR;
+DigitalIoPin *PWR;
+DigitalIoPin *leftLMS;
+DigitalIoPin *rightLMS;
+int pps = 4000;
+
+void move(int value){
+	for(int i = 0; i <= value; i++){
+		PWR->write(true);
+		vTaskDelay(1);
+		PWR->write(false);
+		vTaskDelay(1);
+	}
+
+}
+//
+//  Public functions
+//
+
 
 void RIT_start(int count, int us){
-	 uint64_t cmp_value;
-	 // Determine approximate compare value based on clock rate and passed interval
-	 cmp_value = (uint64_t) Chip_Clock_GetSystemClockRate() * (uint64_t) us / 1000000;
-	 // disable timer during configuration
-	 Chip_RIT_Disable(LPC_RITIMER);
-	 RIT_count = count;
-	 // enable automatic clear on when compare value==timer value
-	 // this makes interrupts trigger periodically
-	 Chip_RIT_EnableCompClear(LPC_RITIMER);
-	 // reset the counter
-	 Chip_RIT_SetCounter(LPC_RITIMER, 0);
-	 Chip_RIT_SetCompareValue(LPC_RITIMER, cmp_value);
-	 // start counting
-	 Chip_RIT_Enable(LPC_RITIMER);
-	 // Enable the interrupt signal in NVIC (the interrupt controller)
-	 NVIC_EnableIRQ(RITIMER_IRQn);
-	 // wait for ISR to tell that we're done
-	 if(xSemaphoreTake(sbRIT, portMAX_DELAY) == pdTRUE) {
-		 // Disable the interrupt signal in NVIC (the interrupt controller)
-		 NVIC_DisableIRQ(RITIMER_IRQn);
-	 }else {
-		 // unexpected error
-	 }
+ uint64_t cmp_value;
+ // Determine approximate compare value based on clock rate and passed interval
+ cmp_value = (uint64_t) Chip_Clock_GetSystemClockRate() * (uint64_t) us / 1000000;
+ // disable timer during configuration
+ Chip_RIT_Disable(LPC_RITIMER);
+ RIT_count = count;
+ // enable automatic clear on when compare value==timer value
+ // this makes interrupts trigger periodically
+ Chip_RIT_EnableCompClear(LPC_RITIMER);
+ // reset the counter
+ Chip_RIT_SetCounter(LPC_RITIMER, 0);
+ Chip_RIT_SetCompareValue(LPC_RITIMER, cmp_value);
+ // start counting
+ Chip_RIT_Enable(LPC_RITIMER);
+ // Enable the interrupt signal in NVIC (the interrupt controller)
+ NVIC_EnableIRQ(RITIMER_IRQn);
+ // wait for ISR to tell that we're done
+ if(xSemaphoreTake(sbRIT, portMAX_DELAY) == pdTRUE) {
+ // Disable the interrupt signal in NVIC (the interrupt controller)
+	  NVIC_DisableIRQ(RITIMER_IRQn);
+ }
+ else {
+//	 Board_UARTPutSTR("Error\r\n");
+ }
 }
 
-extern "C" {
-void RIT_IRQHandler(void){
 
-	PWR = new DigitalIoPin(0, 24, DigitalIoPin::output, false);
-	 // This used to check if a context switch is required
-	 portBASE_TYPE xHigherPriorityWoken = pdFALSE;
-	 // Tell timer that we have processed the interrupt.
-	 // Timer then removes the IRQ until next match occurs
-	 Chip_RIT_ClearIntStatus(LPC_RITIMER); // clear IRQ flag
-	 if(RIT_count > 0) {
-		 RIT_count--;
-		 if(RIT_count % 2){
-			 PWR->write(true);
-		 }else{
-			 PWR->write(false);
-		 }
-	 }else{
-		 Chip_RIT_Disable(LPC_RITIMER); // disable timer
-		 // Give semaphore and set context switch flag if a higher priority task was woken up
-		 xSemaphoreGiveFromISR(sbRIT, &xHigherPriorityWoken);
-	 }
-	 // End the ISR and (possibly) do a context switch
-	 portEND_SWITCHING_ISR(xHigherPriorityWoken);
-}
-}
+ extern "C" {
+ void RIT_IRQHandler(void){
 
-struct cmd{
-	bool dir;
-	int steps;
-	int speed;
-};
+  // This used to check if a context switch is required
+  portBASE_TYPE xHigherPriorityWoken = pdFALSE;
+  // Tell timer that we have processed the interrupt.
+  // Timer then removes the IRQ until next match occurs
+  Chip_RIT_ClearIntStatus(LPC_RITIMER); // clear IRQ flag
 
-int random(int x){
-	int i = std::rand() % x;
-	if (i < 0) {i = -i;}
-	i+= 1;
-	return i;
-}
-
-int move(bool d, int steps){
-	DIR = new DigitalIoPin(1, 0, DigitalIoPin::output, false);	//DIR false-> motor, true <- motor
-	PWR = new DigitalIoPin(0, 24, DigitalIoPin::output, false);
-//RIT_start(int count, int us)
-	DIR->write(d);
-	xSemaphoreGive(sbRIT);
-	RIT_start(steps, pps);
-	return 0;
-}
-int setSpeed(int speed){
-//
-	pps = speed;
-	return 0;
-}
-
-void process(std::string input){
-	std::string left = "left";
-	std::string right = "right";
-	std::string pps = "pps";
-	std::string go = "go";
-	std::string stop = "stop";
-	std::string value = 0;
-	switch(input[0]){
-		case 108:
-			value = input.substr(4, (input.size()-4));
-			move(true, std::stoi(value));
-			break;
-		case 114:
-			value = input.substr(5, (input.size()-5));
-			move(false, std::stoi(value));
-			break;
-		case 112:
-			value = input.substr(3, (input.size()-3));
-			setSpeed(value);
-			break;
-/*		case 103:
-			break;
-		case 115:
-			break;*/
-		default:	Board_UARTPutSTR("Command not found.\r\n");
-			break;
-	}
-}
-
-static void vTask1(void *pvParameters) {
-	bool dir = false, doMove = false;
-	LMTSW_R = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
-	LMTSW_L = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
-	DIR->write(false);
-
-	cmd cmd;
-	/***************************************************/
-	//Move to mid
-	while(!LMTSW_R->read()){
-		move(false, 1);
-	}
-	int steps = 0;
-	while (!LMTSW_L->read()) {
-		move(true, 1);
-		steps++;
-	}
-	move(false, 18);
-	steps = steps-36;
-	move(false, steps/2);
-	/**********************************************/
-	int input_i = 0;
-	char input_c;
-	std::string input_s, steps;
-
-	while(1){
-		input_i = Board_UARTGetChar();
-		if(input_i != EOF){
-			Board_LED_Set(1, true);
-			if(input_i == 13){
-				Board_LED_Set(1, false);
-				process(input_s);
-				input_s.erase();
-			}else{
-				input_c = input_i;
-				input_s.push_back(input_c);
-			}//else
-			vTaskDelay(5);
-		}//!EOF
-	}//while (1)
-}//vTask1
+  if(RIT_count > 0) {
+	  RIT_count--;
+	  if(rightLMS->read() || leftLMS->read()){
+		  PWR->write(false);
+	   }else{
+		  if(RIT_count%2){
+			  PWR->write(false);
+		  }else{
+			  PWR->write(true);
+		  }
+	   }
+  }else {
+	  Chip_RIT_Disable(LPC_RITIMER); // disable timer
+	  // Give semaphore and set context switch flag if a higher priority task was woken up
+	  xSemaphoreGiveFromISR(sbRIT, &xHigherPriorityWoken);
+  }
+  // End the ISR and (possibly) do a context switch
+  portEND_SWITCHING_ISR(xHigherPriorityWoken);
+ }
+ }
 
 
-/*****************************************************************************
- * Public functions
- ****************************************************************************/
 
-/* the following is required if runtime statistics are to be collected */
+
+// the following is required if runtime statistics are to be collected
 extern "C" {
 
 void vConfigureTimerForRunTimeStats( void ) {
@@ -236,27 +157,106 @@ void vConfigureTimerForRunTimeStats( void ) {
 }
 
 }
-/* end runtime statictics collection */
+// end runtime statictics collection
 
-/**
- * @brief	lab6, stepper motor
- * @return	Nothing, function should not exit
- */
+
+
+static void vTask1(void *pvParameters ){
+	vTaskDelay(100);
+	int input_i;
+	char buffer[64];
+	int pos = 0;
+	Board_UARTPutSTR("Task1 online.\r\n");
+	while(1){
+		input_i = Board_UARTGetChar();
+		if(input_i != EOF){
+			if(xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE){
+				if(input_i == 13){
+					buffer[pos] = '\r';
+					buffer[pos+1] = '\n';
+					buffer[pos+2] = 0;
+					Board_UARTPutSTR(buffer);
+					ITM_write(buffer);
+					xQueueSendToBack(xQueue, buffer, 10);
+					xTaskNotifyGive(Task2);
+					std::fill_n(buffer, 64, 0);
+					pos = 0;
+				}else{
+					buffer[pos] = input_i;
+					pos++;
+				}
+			}
+			xSemaphoreGive(mutex);
+		}//!EOF
+		vTaskDelay(5);
+	}
+}
+
+static void vTask2(void *pvParameters ){
+	vTaskDelay(100);
+
+	while(1){
+		char command[64];
+		int value = 0;
+
+		ulTaskNotifyTake( pdFALSE, portMAX_DELAY );
+		xQueueReceive(xQueue, command, 10);
+//		xSemaphoreTake(mutex, portMAX_DELAY);
+		if(!strncmp(command, "left", 4)){
+			DIR->write(true);
+			value = atoi(command+4);
+			Board_UARTPutSTR("left ");
+			Board_UARTPutSTR(std::to_string(value).c_str());
+			Board_UARTPutSTR("\r\n");
+			RIT_start(value, pps);
+		}else if(!strncmp(command, "right", 5)){
+			DIR->write(false);
+			value = atoi(command+5);
+			Board_UARTPutSTR("right ");
+			Board_UARTPutSTR(std::to_string(value).c_str());
+			Board_UARTPutSTR("\r\n");
+			RIT_start(value, pps);
+		}else if(!strncmp(command, "pps", 3)){
+			value = atoi(command+3);
+			Board_UARTPutSTR("New PPS value: ");
+			Board_UARTPutSTR(std::to_string(value).c_str());
+			Board_UARTPutSTR("\r\n");
+			pps = value;
+		}else{
+			Board_UARTPutSTR("Error\r\n");
+		}
+//		xSemaphoreGive(mutex);
+	}
+}
+
+
+//
+//  @brief	lab6, stepper motor
+//  @return	Nothing, function should not exit
+//
 int main(void)
 {
 	prvSetupHardware();
 	ITM_init();
 	sbRIT = xSemaphoreCreateBinary();
-	binary = xSemaphoreCreateBinary();
+
+	PWR = new DigitalIoPin(0, 24, DigitalIoPin::output, false);
+	DIR = new DigitalIoPin(1, 0, DigitalIoPin::output, false);	//DIR false-> motor, true <- motor
+	rightLMS = new DigitalIoPin(0, 28, DigitalIoPin::pullup, true);		//Boundary1 at motor
+	leftLMS = new DigitalIoPin(0, 27, DigitalIoPin::pullup, true);		//Boundary2 opposite from motor
+
+	xQueue = xQueueCreate(20, sizeof(char)*64);
 	mutex = xSemaphoreCreateMutex();
-	xQueue = xQueueCreate(20, sizeof(cmd*));
-
 	xTaskCreate(vTask1, "vTask1",
-					configMINIMAL_STACK_SIZE + 128, NULL, (tskIDLE_PRIORITY + 1UL),
+					configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
 					(TaskHandle_t *) NULL);
+	xTaskCreate(vTask2, "vTask2",
+						configMINIMAL_STACK_SIZE + 256, NULL, (tskIDLE_PRIORITY + 1UL),
+						&Task2);
 
-	/* Start the scheduler */
+//	 Start the scheduler
 	vTaskStartScheduler();
-	/* Should never arrive here */
+//	 Should never arrive here
 	return 1;
 }
+
